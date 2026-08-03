@@ -1,7 +1,10 @@
 /**
- * Stripe webhook — activates and cancels subscriptions automatically.
+ * 1st Bookkeeper-In-A-Box — Stripe Webhook Handler
+ *
+ * Activates and cancels subscriptions automatically.
  * Point a Stripe webhook endpoint at this route with events:
- * checkout.session.completed, invoice.paid, customer.subscription.deleted.
+ *   checkout.session.completed, invoice.paid, customer.subscription.deleted,
+ *   customer.subscription.updated (for trial → active transitions).
  * Requires STRIPE_WEBHOOK_SECRET. Signature is verified over the exact raw
  * body with a replay window, per Stripe's t/v1 scheme.
  */
@@ -35,9 +38,30 @@ export default async function (req, res) {
     case 'checkout.session.completed': {
       const email = obj.customer_details?.email ?? obj.customer_email;
       if (email) {
+        // Determine plan from metadata or default to single
+        const plan = obj.metadata?.plan ?? 'single';
+        const status = obj.subscription ? 'trialing' : 'active';
         await activateSubscription(email, {
+          status,
+          plan,
           stripeCustomerId: typeof obj.customer === 'string' ? obj.customer : null,
           stripeSubscriptionId: typeof obj.subscription === 'string' ? obj.subscription : null,
+        });
+      }
+      break;
+    }
+    case 'customer.subscription.updated': {
+      // Handles trial → active transition and plan changes
+      const email = obj.customer_email ?? obj.metadata?.email;
+      if (email && obj.status) {
+        const plan = obj.metadata?.plan ?? obj.items?.data?.[0]?.price?.metadata?.plan ?? 'single';
+        const periodEnd = obj.current_period_end;
+        await activateSubscription(email, {
+          status: obj.status === 'active' ? 'active' : obj.status,
+          plan,
+          stripeCustomerId: typeof obj.customer === 'string' ? obj.customer : null,
+          stripeSubscriptionId: typeof obj.id === 'string' ? obj.id : null,
+          currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
         });
       }
       break;
@@ -45,8 +69,11 @@ export default async function (req, res) {
     case 'invoice.paid': {
       const email = obj.customer_email;
       const periodEnd = obj.lines?.data?.[0]?.period?.end;
+      const plan = obj.lines?.data?.[0]?.price?.metadata?.plan ?? 'single';
       if (email) {
         await activateSubscription(email, {
+          status: 'active',
+          plan,
           stripeCustomerId: typeof obj.customer === 'string' ? obj.customer : null,
           stripeSubscriptionId: typeof obj.subscription === 'string' ? obj.subscription : null,
           currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,

@@ -1166,6 +1166,143 @@ function Guide({ view }: { view: string }) {
     );
 }
 
+// ── Billing & Pricing ──
+function Billing() {
+    const [status, setStatus] = useState<Record<string, any> | null>(null);
+    const [err, setErr] = useState('');
+    useEffect(() => {
+        api.get('/api/billing/status').then((r) => setStatus(r.data)).catch((e) => setErr((e as { message?: string }).message || 'Failed to load billing status'));
+    }, []);
+
+    const subscribed = status?.subscribed;
+    const trialing = status?.trialing;
+    const plan = status?.plan;
+
+    return (
+        <main className='max-w-5xl mx-auto px-6 py-10 flex flex-col gap-8'>
+            <section className='text-center flex flex-col items-center gap-3'>
+                <h2 className='text-3xl'>Pricing & Billing</h2>
+                <p className='text-sm opacity-70 max-w-2xl'>Enterprise-grade vertical ledger intelligence for a fraction of traditional bookkeeping costs. Real-time accuracy, zero seat penalties, and massive annual savings.</p>
+            </section>
+
+            {/* Current subscription status */}
+            {status && subscribed && (
+                <div className='border border-green-200 bg-green-50 rounded-lg p-4 text-center'>
+                    <p className='text-green-800 font-semibold'>{trialing ? '\u23F3 Trial Active' : '\u2713 Subscription Active'}</p>
+                    <p className='text-sm text-green-700 mt-1'>Plan: <strong>{plan === 'multi' ? 'Multi-Location ($149/mo per location)' : 'Single Location ($199/mo)'}</strong></p>
+                    {status.currentPeriodEnd && <p className='text-xs text-green-600 mt-1'>Current period ends: {new Date(status.currentPeriodEnd).toLocaleDateString()}</p>}
+                    {trialing && status.trialEnd && <p className='text-xs text-green-600'>Trial ends: {new Date(status.trialEnd).toLocaleDateString()} — billing begins automatically.</p>}
+                </div>
+            )}
+
+            {err && <p className='text-red-700 text-sm text-center'>{err}</p>}
+
+            {/* Why Choose Us — Comparative Cost Breakdown */}
+            <section>
+                <h3 className='text-xl text-center mb-6'>Why Choose Us?</h3>
+                <div className='grid gap-5 md:grid-cols-3'>
+                    {/* Competitor 1: Traditional Bookkeeper */}
+                    <div className='border border-[#e0ddd8] rounded-lg p-5 bg-white/60 flex flex-col gap-3'>
+                        <div className='text-[11px] tracking-widest uppercase text-red-600 font-semibold'>Traditional Outsourced Bookkeeper</div>
+                        <div className='text-2xl font-bold text-red-700'>$500 \u2013 $750+<span className='text-sm font-normal opacity-70'>/month</span></div>
+                        <ul className='text-sm opacity-70 flex flex-col gap-1.5 mt-2'>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> Slow monthly closings</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> High retainer fees</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> Manual entry delays</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> Zero real-time answers</li>
+                        </ul>
+                    </div>
+
+                    {/* Competitor 2: Generic Cloud Tools */}
+                    <div className='border border-[#e0ddd8] rounded-lg p-5 bg-white/60 flex flex-col gap-3'>
+                        <div className='text-[11px] tracking-widest uppercase text-amber-600 font-semibold'>Generic Cloud Accounting Tools</div>
+                        <div className='text-2xl font-bold text-amber-700'>$80 \u2013 $180<span className='text-sm font-normal opacity-70'>/month + add-ons</span></div>
+                        <ul className='text-sm opacity-70 flex flex-col gap-1.5 mt-2'>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> Unspecialized charts of accounts</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> No vertical intelligence</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> Heavy manual work required</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> Per-seat pricing adds up fast</li>
+                        </ul>
+                    </div>
+
+                    {/* Our Product */}
+                    <div className='border-2 border-[#b68235] rounded-lg p-5 bg-[#b68235]/5 flex flex-col gap-3 relative'>
+                        <div className='absolute -top-3 left-1/2 -translate-x-1/2 bg-[#b68235] text-white text-[10px] font-bold tracking-wider uppercase px-3 py-0.5 rounded-full'>Best Value</div>
+                        <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>1st Bookkeeper-In-A-Box</div>
+                        <div className='text-2xl font-bold text-[#8a5f22]'>$199<span className='text-sm font-normal opacity-70'>/month</span></div>
+                        <p className='text-xs font-semibold text-green-700 bg-green-50 rounded px-2 py-1 text-center'>Save over $4,000 \u2013 $6,000 every year</p>
+                        <ul className='text-sm flex flex-col gap-1.5 mt-1'>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Immediate Time-to-Value:</strong> POS & Bank CSV auto-reconcile in 60 seconds</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Vertical Intelligence:</strong> Specialized setups for Restaurants, Salons, Auto Repair, Tattoo Parlors</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Built-in AI Guide:</strong> 24/7 ledger intelligence and instant support</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Multi-Location Discount:</strong> Just $149/mo per location (2+ locations)</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+
+            {/* Plan Selection & Checkout */}
+            {!subscribed && (
+                <section className='flex flex-col gap-5'>
+                    <h3 className='text-xl text-center'>Choose Your Plan</h3>
+                    <p className='text-sm text-center opacity-70'>Both plans include a 14-day free trial. Your card is collected upfront and billing begins automatically on Day 15.</p>
+                    <div className='grid gap-5 md:grid-cols-2 max-w-3xl mx-auto w-full'>
+                        {/* Single Location */}
+                        <div className='border border-[#e0ddd8] rounded-lg p-6 bg-white/80 flex flex-col gap-4'>
+                            <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>Single Location</div>
+                            <div className='text-3xl font-bold'>$199<span className='text-base font-normal opacity-70'>/month</span></div>
+                            <ul className='text-sm flex flex-col gap-1.5'>
+                                <li>\u2713 1 business location</li>
+                                <li>\u2713 All features included</li>
+                                <li>\u2713 AI Guide (\u201CAsk Your Bookkeeper\u201D)</li>
+                                <li>\u2713 Unlimited POS & bank imports</li>
+                                <li>\u2713 QBO export for your accountant</li>
+                                <li>\u2713 14-day free trial</li>
+                            </ul>
+                            {status?.checkoutUrls?.single ? (
+                                <a href={status.checkoutUrls.single} className={btnOn + ' justify-center mt-auto'}>Start Free Trial \u2192</a>
+                            ) : (
+                                <button disabled className={btnOff + ' justify-center mt-auto'}>Coming soon</button>
+                            )}
+                        </div>
+                        {/* Multi-Location */}
+                        <div className='border-2 border-[#b68235] rounded-lg p-6 bg-[#b68235]/5 flex flex-col gap-4 relative'>
+                            <div className='absolute -top-3 left-1/2 -translate-x-1/2 bg-[#b68235] text-white text-[10px] font-bold tracking-wider uppercase px-3 py-0.5 rounded-full'>Volume Discount</div>
+                            <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>Multi-Location</div>
+                            <div className='text-3xl font-bold'>$149<span className='text-base font-normal opacity-70'>/mo per location</span></div>
+                            <ul className='text-sm flex flex-col gap-1.5'>
+                                <li>\u2713 2+ business locations</li>
+                                <li>\u2713 All features included</li>
+                                <li>\u2713 AI Guide across all locations</li>
+                                <li>\u2713 Consolidated multi-unit reporting</li>
+                                <li>\u2713 QBO export per location</li>
+                                <li>\u2713 14-day free trial</li>
+                            </ul>
+                            {status?.checkoutUrls?.multi ? (
+                                <a href={status.checkoutUrls.multi} className={btnOn + ' justify-center mt-auto'}>Start Free Trial \u2192</a>
+                            ) : (
+                                <button disabled className={btnOff + ' justify-center mt-auto'}>Coming soon</button>
+                            )}
+                        </div>
+                    </div>
+                    <p className='text-xs text-center opacity-60 max-w-xl mx-auto'>All plans include unlimited users at no extra cost. No seat penalties. Cancel anytime from your Stripe billing portal.</p>
+                </section>
+            )}
+
+            {/* FAQ / Fine Print */}
+            <section className='border border-[#e0ddd8] rounded bg-white/40 p-5 text-sm opacity-80 max-w-3xl mx-auto'>
+                <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold mb-2'>Frequently Asked Questions</div>
+                <div className='flex flex-col gap-3'>
+                    <div><strong>What happens after the 14-day trial?</strong><br />Your card is charged automatically on Day 15. You can cancel anytime before that with no charge.</div>
+                    <div><strong>Can I switch plans later?</strong><br />Yes. Upgrade from Single to Multi-Location at any time. We\u2019ll prorate the difference.</div>
+                    <div><strong>Is my data safe?</strong><br />Your financial data is encrypted in transit and at rest. We never share it with third parties. This system records data only and never moves money.</div>
+                    <div><strong>Do I need an accountant?</strong><br />Not necessarily. The AI Guide answers financial questions in real time. But if you have an accountant, the QBO export gives them exactly what they need.</div>
+                </div>
+            </section>
+        </main>
+    );
+}
+
 // ── Getting Started Onboarding Wizard ──
 function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
     const [step, setStep] = useState(1);
@@ -1265,6 +1402,7 @@ function App() {
         if (h === '#/reports') return 'reports';
         if (h === '#/reconciliation') return 'reconciliation';
         if (h === '#/settings') return 'settings';
+        if (h === '#/billing') return 'billing';
         return 'home';
     };
     const [view, setView] = useState<string>(fromHash());
@@ -1333,6 +1471,7 @@ function App() {
                     <button className={tab(view === 'scanner')} onClick={() => go('scanner')} aria-current={view === 'scanner' ? 'page' : undefined}>Invoice Scanner</button>
                     <button className={tab(view === 'reconciliation')} onClick={() => go('reconciliation')} aria-current={view === 'reconciliation' ? 'page' : undefined}>Reconcile</button>
                     <button className={tab(view === 'settings')} onClick={() => go('settings')} aria-current={view === 'settings' ? 'page' : undefined}>Settings</button>
+                    <button className={tab(view === 'billing')} onClick={() => go('billing')} aria-current={view === 'billing' ? 'page' : undefined}>Billing</button>
                 </nav>
             </header>
             {view === 'home' ? <Home go={go} scanCount={scanCount} />
@@ -1347,6 +1486,7 @@ function App() {
                 : view === 'reports' ? <Reports />
                 : view === 'reconciliation' ? <Reconciliation />
                 : view === 'settings' ? <Settings />
+                : view === 'billing' ? <Billing />
                 : <Scanner />}
             <Guide view={view} />
             {showOnboarding && <OnboardingWizard onComplete={() => { setShowOnboarding(false); window.location.reload(); }} />}
