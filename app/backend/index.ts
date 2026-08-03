@@ -1375,7 +1375,7 @@ export const handler = router({
             lastCount ? 'Last inventory count: ' + lastCount.countDate + ' variances: ' + JSON.stringify(lastCount.variances) : 'No inventory counts recorded yet'
         ].join('\n');
         // Build multi-turn message history
-        const messages: Array<{ role: string; content: string }> = [
+        const messages: Array<{ role: 'user' | 'assistant' | 'system' | 'model'; content: string }> = [
             { role: 'system', content: 'You are the 1st Bookkeeper-In-A-Box financial assistant for a ' + profile.label + ' business. You have access to the user\'s live ledger data below. Answer questions about their financial health, explain variances, suggest actions, and guide them through bookkeeping workflows. Be concise, specific, and reference actual numbers. Never guess amounts you do not have. If you cannot answer from the data provided, say so.\n\nAfter your answer, ALWAYS provide exactly 3 suggested follow-up questions the user might want to ask next, formatted as a JSON array on a new line starting with "SUGGESTIONS:" — e.g. SUGGESTIONS:["What is my food cost trend?","How much do I owe vendors?","Should I count inventory?"]\n\nLIVE LEDGER CONTEXT:\n' + context }
         ];
         // Include conversation history for multi-turn context (last 8 exchanges max)
@@ -1385,8 +1385,8 @@ export const handler = router({
         }
         messages.push({ role: 'user', content: b.question.trim() });
         try {
-            const result = await ai.chat({ messages });
-            const raw = result.message || result.content || 'I could not generate a response. Please try rephrasing your question.';
+            const result = await ai.generate({ messages });
+            const raw = result.text || 'I could not generate a response. Please try rephrasing your question.';
             // Parse suggestions from the response
             let answer = raw;
             let suggestions: string[] = [];
