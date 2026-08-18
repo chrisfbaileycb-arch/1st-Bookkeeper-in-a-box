@@ -8,7 +8,13 @@ hosted_login = true
 
 [ai]
 required = true
-providers = ["google"]
+pin = "google"
+description = "Powers the conversational Bookkeeper Copilot and its Draft Books tool calling."
+
+[[secret]]
+key = "GOOGLE_API_KEY"
+required = true
+description = "Project-scoped Google Gemini API key for the Bookkeeper Copilot."
 
 [[config]]
 key = "founding_checkout_url"
