@@ -1,0 +1,5 @@
+CREATE FUNCTION protect_append_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Live Books and audit records are append-only'; END; $$;
+CREATE TRIGGER ledger_entries_no_update BEFORE UPDATE OR DELETE ON ledger_entries FOR EACH ROW EXECUTE FUNCTION protect_append_only();
+CREATE TRIGGER ledger_lines_no_update BEFORE UPDATE OR DELETE ON ledger_lines FOR EACH ROW EXECUTE FUNCTION protect_append_only();
+CREATE TRIGGER audit_events_no_update BEFORE UPDATE OR DELETE ON audit_events FOR EACH ROW EXECUTE FUNCTION protect_append_only();
+CREATE FUNCTION enforce_balanced_entry() RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE d numeric; c numeric; BEGIN SELECT COALESCE(sum(debit),0),COALESCE(sum(credit),0) INTO d,c FROM ledger_lines WHERE ledger_entry_id=NEW.ledger_entry_id; IF d<>c THEN RAISE EXCEPTION 'Ledger entry must balance'; END IF; RETURN NEW; END; $$;
