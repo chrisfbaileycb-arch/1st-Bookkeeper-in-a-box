@@ -1,0 +1,3 @@
+import {storage,db} from 'hatchable'; import {membership} from 'lib/context.js';
+export const access='user'; export const methods=['GET'];
+export default async function(req,res){try{const id=Number(req.params.id),businessId=Number(req.query.business_id);await membership(req.user.id,businessId);const row=(await db.query('SELECT storage_key FROM source_documents WHERE id=$1 AND business_id=$2',[id,businessId])).rows[0];if(!row)return res.status(404).json({error:'Not found'});res.redirect(302,await storage.url(row.storage_key,{ttl:30}));}catch(e){res.status(403).json({error:e.message})}}

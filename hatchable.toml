@@ -1,5 +1,36 @@
-# Daily compliance-deadline check: refresh estimated amounts from ledger
-# liability balances and advance statuses (UPCOMING → DUE_SOON → OVERDUE).
-[[cron]]
-path     = "/api/cron/compliance"
-schedule = "0 12 * * *"
+name = "Interactive Bookkeeper Copilot"
+framework_v = 1
+
+[auth]
+enabled = true
+providers = ["email"]
+hosted_login = true
+
+[ai]
+required = true
+pin = "google"
+description = "Powers the conversational Bookkeeper Copilot and its Draft Books tool calling."
+
+[[secret]]
+key = "GOOGLE_API_KEY"
+required = true
+description = "Project-scoped Google Gemini API key for the Bookkeeper Copilot."
+
+[[config]]
+key = "founding_checkout_url"
+type = "url"
+label = "Founding-plan checkout URL"
+help = "Secure checkout URL for the $249/month founding plan. Payment status must still be verified server-side."
+required = false
+
+[db.tables.business_memberships]
+read = "own"
+write = "own"
+
+[db.tables.copilot_runs]
+read = "own"
+write = "own"
+
+[db.tables.customer_onboarding]
+read = "own"
+write = "own"
