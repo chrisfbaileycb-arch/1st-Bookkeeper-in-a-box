@@ -929,7 +929,7 @@ function Reconciliation() {
             {data && (
                 <>
                     <div className={'border rounded p-3 text-center font-semibold text-sm ' + statusColor}>
-                        {status === 'RECONCILED' ? '\u2713 All sources reconciled for this period' : '\u26A0 Discrepancies found \u2014 review below'}
+                        {status === 'RECONCILED' ? '✓ All sources reconciled for this period' : '⚠ Discrepancies found — review below'}
                     </div>
                     <div className='grid gap-4 sm:grid-cols-3'>
                         <div className='border border-[#e0ddd8] rounded p-4 bg-white/60'>
@@ -1001,7 +1001,7 @@ function Settings() {
                         <p className='text-xs opacity-70'>{v.description}</p>
                         <p className='text-xs opacity-60'>{v.accountCount} accounts &middot; KPIs: {(v.kpis || []).join(', ')}</p>
                         {active?.profileId !== v.id && <button onClick={() => switchProfile(v.id)} disabled={busy} className={btnOn + ' mt-auto self-start text-xs'}>Activate</button>}
-                        {active?.profileId === v.id && <span className='text-xs text-[#8a5f22] font-semibold mt-auto'>\u2713 Active</span>}
+                        {active?.profileId === v.id && <span className='text-xs text-[#8a5f22] font-semibold mt-auto'>✓ Active</span>}
                     </div>
                 ))}
             </div>
@@ -1130,14 +1130,14 @@ function Guide({ view }: { view: string }) {
                     <div><div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>AI Bookkeeper Assistant</div><h3 className='text-lg'>Ask me anything about your books</h3></div>
                     {tips[view] && <p className='text-xs opacity-70 italic'>{tips[view]}</p>}
                     <div>
-                        {!steps ? <p className='text-xs opacity-60'>Checking your books\u2026</p> : steps.map((s) => (
+                        {!steps ? <p className='text-xs opacity-60'>Checking your books…</p> : steps.map((s) => (
                             <div key={s.label} className='flex items-center gap-2 py-1.5 border-b border-[#e0ddd8] last:border-b-0 text-sm'>
                                 <span className={'w-2 h-2 rounded-full border border-[#b68235] shrink-0 ' + (s.done ? 'bg-[#b68235]' : '')}></span>
                                 <span className={s.done ? 'opacity-50 line-through' : ''}>{s.label}</span>
-                                {!s.done && <a href={s.hash} className='ml-auto text-xs text-[#8a5f22] shrink-0'>go \u2192</a>}
+                                {!s.done && <a href={s.hash} className='ml-auto text-xs text-[#8a5f22] shrink-0'>go →</a>}
                             </div>
                         ))}
-                        {steps && (next ? <p className='text-sm mt-2'><strong>Next up:</strong> {next.label} <a href={next.hash} className='text-[#8a5f22]'>open \u2192</a></p> : <p className='text-sm mt-2'>All clear - the books are closed up. \u2726</p>)}
+                        {steps && (next ? <p className='text-sm mt-2'><strong>Next up:</strong> {next.label} <a href={next.hash} className='text-[#8a5f22]'>open →</a></p> : <p className='text-sm mt-2'>All clear - the books are closed up. ✦</p>)}
                     </div>
                     {history.length > 0 && (
                         <div className='border-t border-[#e0ddd8] pt-2 flex flex-col gap-2 max-h-48 overflow-y-auto'>
@@ -1149,7 +1149,7 @@ function Guide({ view }: { view: string }) {
                         </div>
                     )}
                     <form onSubmit={ask} className='flex gap-2'>
-                        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={thinking ? 'Thinking\u2026' : 'Ask about your finances, KPIs, variances\u2026'} aria-label='Ask the bookkeeper' disabled={thinking} className='flex-1 border border-[#e0ddd8] rounded px-2 py-1.5 bg-white text-sm disabled:opacity-50' />
+                        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={thinking ? 'Thinking…' : 'Ask about your finances, KPIs, variances…'} aria-label='Ask the bookkeeper' disabled={thinking} className='flex-1 border border-[#e0ddd8] rounded px-2 py-1.5 bg-white text-sm disabled:opacity-50' />
                         <button type='submit' disabled={thinking} className={thinking ? btnOff + ' !px-3 !py-1' : btnOn + ' !px-3 !py-1'}><Send size={14} /></button>
                     </form>
                     {suggestions.length > 0 && (
@@ -1188,7 +1188,7 @@ function Billing() {
             {/* Current subscription status */}
             {status && subscribed && (
                 <div className='border border-green-200 bg-green-50 rounded-lg p-4 text-center'>
-                    <p className='text-green-800 font-semibold'>{trialing ? '\u23F3 Trial Active' : '\u2713 Subscription Active'}</p>
+                    <p className='text-green-800 font-semibold'>{trialing ? '⏳ Trial Active' : '✓ Subscription Active'}</p>
                     <p className='text-sm text-green-700 mt-1'>Plan: <strong>{plan === 'multi' ? 'Multi-Location ($149/mo per location)' : 'Single Location ($199/mo)'}</strong></p>
                     {status.currentPeriodEnd && <p className='text-xs text-green-600 mt-1'>Current period ends: {new Date(status.currentPeriodEnd).toLocaleDateString()}</p>}
                     {trialing && status.trialEnd && <p className='text-xs text-green-600'>Trial ends: {new Date(status.trialEnd).toLocaleDateString()} — billing begins automatically.</p>}
@@ -1204,24 +1204,24 @@ function Billing() {
                     {/* Competitor 1: Traditional Bookkeeper */}
                     <div className='border border-[#e0ddd8] rounded-lg p-5 bg-white/60 flex flex-col gap-3'>
                         <div className='text-[11px] tracking-widest uppercase text-red-600 font-semibold'>Traditional Outsourced Bookkeeper</div>
-                        <div className='text-2xl font-bold text-red-700'>$500 \u2013 $750+<span className='text-sm font-normal opacity-70'>/month</span></div>
+                        <div className='text-2xl font-bold text-red-700'>$500 – $750+<span className='text-sm font-normal opacity-70'>/month</span></div>
                         <ul className='text-sm opacity-70 flex flex-col gap-1.5 mt-2'>
-                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> Slow monthly closings</li>
-                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> High retainer fees</li>
-                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> Manual entry delays</li>
-                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>\u2717</span> Zero real-time answers</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>✗</span> Slow monthly closings</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>✗</span> High retainer fees</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>✗</span> Manual entry delays</li>
+                            <li className='flex items-start gap-2'><span className='text-red-500 mt-0.5'>✗</span> Zero real-time answers</li>
                         </ul>
                     </div>
 
                     {/* Competitor 2: Generic Cloud Tools */}
                     <div className='border border-[#e0ddd8] rounded-lg p-5 bg-white/60 flex flex-col gap-3'>
                         <div className='text-[11px] tracking-widest uppercase text-amber-600 font-semibold'>Generic Cloud Accounting Tools</div>
-                        <div className='text-2xl font-bold text-amber-700'>$80 \u2013 $180<span className='text-sm font-normal opacity-70'>/month + add-ons</span></div>
+                        <div className='text-2xl font-bold text-amber-700'>$80 – $180<span className='text-sm font-normal opacity-70'>/month + add-ons</span></div>
                         <ul className='text-sm opacity-70 flex flex-col gap-1.5 mt-2'>
-                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> Unspecialized charts of accounts</li>
-                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> No vertical intelligence</li>
-                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> Heavy manual work required</li>
-                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>\u2717</span> Per-seat pricing adds up fast</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>✗</span> Unspecialized charts of accounts</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>✗</span> No vertical intelligence</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>✗</span> Heavy manual work required</li>
+                            <li className='flex items-start gap-2'><span className='text-amber-500 mt-0.5'>✗</span> Per-seat pricing adds up fast</li>
                         </ul>
                     </div>
 
@@ -1230,12 +1230,12 @@ function Billing() {
                         <div className='absolute -top-3 left-1/2 -translate-x-1/2 bg-[#b68235] text-white text-[10px] font-bold tracking-wider uppercase px-3 py-0.5 rounded-full'>Best Value</div>
                         <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>1st Bookkeeper-In-A-Box</div>
                         <div className='text-2xl font-bold text-[#8a5f22]'>$199<span className='text-sm font-normal opacity-70'>/month</span></div>
-                        <p className='text-xs font-semibold text-green-700 bg-green-50 rounded px-2 py-1 text-center'>Save over $4,000 \u2013 $6,000 every year</p>
+                        <p className='text-xs font-semibold text-green-700 bg-green-50 rounded px-2 py-1 text-center'>Save over $4,000 – $6,000 every year</p>
                         <ul className='text-sm flex flex-col gap-1.5 mt-1'>
-                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Immediate Time-to-Value:</strong> POS & Bank CSV auto-reconcile in 60 seconds</li>
-                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Vertical Intelligence:</strong> Specialized setups for Restaurants, Salons, Auto Repair, Tattoo Parlors</li>
-                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Built-in AI Guide:</strong> 24/7 ledger intelligence and instant support</li>
-                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>\u2713</span> <strong>Multi-Location Discount:</strong> Just $149/mo per location (2+ locations)</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>✓</span> <strong>Immediate Time-to-Value:</strong> POS & Bank CSV auto-reconcile in 60 seconds</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>✓</span> <strong>Vertical Intelligence:</strong> Specialized setups for Restaurants, Salons, Auto Repair, Tattoo Parlors</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>✓</span> <strong>Built-in AI Guide:</strong> 24/7 ledger intelligence and instant support</li>
+                            <li className='flex items-start gap-2'><span className='text-green-600 mt-0.5'>✓</span> <strong>Multi-Location Discount:</strong> Just $149/mo per location (2+ locations)</li>
                         </ul>
                     </div>
                 </div>
@@ -1252,15 +1252,15 @@ function Billing() {
                             <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>Single Location</div>
                             <div className='text-3xl font-bold'>$199<span className='text-base font-normal opacity-70'>/month</span></div>
                             <ul className='text-sm flex flex-col gap-1.5'>
-                                <li>\u2713 1 business location</li>
-                                <li>\u2713 All features included</li>
-                                <li>\u2713 AI Guide (\u201CAsk Your Bookkeeper\u201D)</li>
-                                <li>\u2713 Unlimited POS & bank imports</li>
-                                <li>\u2713 QBO export for your accountant</li>
-                                <li>\u2713 14-day free trial</li>
+                                <li>✓ 1 business location</li>
+                                <li>✓ All features included</li>
+                                <li>✓ AI Guide (“Ask Your Bookkeeper”)</li>
+                                <li>✓ Unlimited POS & bank imports</li>
+                                <li>✓ QBO export for your accountant</li>
+                                <li>✓ 14-day free trial</li>
                             </ul>
                             {status?.checkoutUrls?.single ? (
-                                <a href={status.checkoutUrls.single} className={btnOn + ' justify-center mt-auto'}>Start Free Trial \u2192</a>
+                                <a href={status.checkoutUrls.single} className={btnOn + ' justify-center mt-auto'}>Start Free Trial →</a>
                             ) : (
                                 <button disabled className={btnOff + ' justify-center mt-auto'}>Coming soon</button>
                             )}
@@ -1271,15 +1271,15 @@ function Billing() {
                             <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>Multi-Location</div>
                             <div className='text-3xl font-bold'>$149<span className='text-base font-normal opacity-70'>/mo per location</span></div>
                             <ul className='text-sm flex flex-col gap-1.5'>
-                                <li>\u2713 2+ business locations</li>
-                                <li>\u2713 All features included</li>
-                                <li>\u2713 AI Guide across all locations</li>
-                                <li>\u2713 Consolidated multi-unit reporting</li>
-                                <li>\u2713 QBO export per location</li>
-                                <li>\u2713 14-day free trial</li>
+                                <li>✓ 2+ business locations</li>
+                                <li>✓ All features included</li>
+                                <li>✓ AI Guide across all locations</li>
+                                <li>✓ Consolidated multi-unit reporting</li>
+                                <li>✓ QBO export per location</li>
+                                <li>✓ 14-day free trial</li>
                             </ul>
                             {status?.checkoutUrls?.multi ? (
-                                <a href={status.checkoutUrls.multi} className={btnOn + ' justify-center mt-auto'}>Start Free Trial \u2192</a>
+                                <a href={status.checkoutUrls.multi} className={btnOn + ' justify-center mt-auto'}>Start Free Trial →</a>
                             ) : (
                                 <button disabled className={btnOff + ' justify-center mt-auto'}>Coming soon</button>
                             )}
@@ -1294,7 +1294,7 @@ function Billing() {
                 <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold mb-2'>Frequently Asked Questions</div>
                 <div className='flex flex-col gap-3'>
                     <div><strong>What happens after the 14-day trial?</strong><br />Your card is charged automatically on Day 15. You can cancel anytime before that with no charge.</div>
-                    <div><strong>Can I switch plans later?</strong><br />Yes. Upgrade from Single to Multi-Location at any time. We\u2019ll prorate the difference.</div>
+                    <div><strong>Can I switch plans later?</strong><br />Yes. Upgrade from Single to Multi-Location at any time. We’ll prorate the difference.</div>
                     <div><strong>Is my data safe?</strong><br />Your financial data is encrypted in transit and at rest. We never share it with third parties. This system records data only and never moves money.</div>
                     <div><strong>Do I need an accountant?</strong><br />Not necessarily. The AI Guide answers financial questions in real time. But if you have an accountant, the QBO export gives them exactly what they need.</div>
                 </div>
@@ -1312,10 +1312,10 @@ function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
     const [err, setErr] = useState('');
 
     const profiles = [
-        { id: 'restaurant', label: 'Restaurant & Food Service', icon: '\uD83C\uDF7D\uFE0F', desc: 'Full-service, fast-casual, food trucks, catering. Tracks food/bev COGS, prime cost, waste, and tip reconciliation.' },
-        { id: 'salon', label: 'Salon & Barbershop', icon: '\u2702\uFE0F', desc: 'Hair salons, barbershops, nail studios, spas. Tracks booth rental, commission splits, retail product margins.' },
-        { id: 'tattoo', label: 'Tattoo & Piercing Studio', icon: '\uD83C\uDFA8', desc: 'Tattoo parlors, piercing studios, body art. Tracks artist percentage splits, supply costs, aftercare retail.' },
-        { id: 'auto_repair', label: 'Auto Repair & Service', icon: '\uD83D\uDD27', desc: 'Mechanical shops, tire shops, body shops. Tracks parts vs labor COGS, sublet repairs, warranty claims.' }
+        { id: 'restaurant', label: 'Restaurant & Food Service', icon: '🍽️', desc: 'Full-service, fast-casual, food trucks, catering. Tracks food/bev COGS, prime cost, waste, and tip reconciliation.' },
+        { id: 'salon', label: 'Salon & Barbershop', icon: '✂️', desc: 'Hair salons, barbershops, nail studios, spas. Tracks booth rental, commission splits, retail product margins.' },
+        { id: 'tattoo', label: 'Tattoo & Piercing Studio', icon: '🎨', desc: 'Tattoo parlors, piercing studios, body art. Tracks artist percentage splits, supply costs, aftercare retail.' },
+        { id: 'auto_repair', label: 'Auto Repair & Service', icon: '🔧', desc: 'Mechanical shops, tire shops, body shops. Tracks parts vs labor COGS, sublet repairs, warranty claims.' }
     ];
 
     async function finish() {
@@ -1342,13 +1342,13 @@ function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                 <div className='text-center'>
                     <Crate size={48} />
                     <h1 className='text-2xl mt-3'>Welcome to <strong>1st Bookkeeper-In-A-Box</strong></h1>
-                    <p className='text-sm opacity-70 mt-1'>Specialized Ledger Intelligence \u2014 let\u2019s set up your books in 30 seconds.</p>
+                    <p className='text-sm opacity-70 mt-1'>Specialized Ledger Intelligence — let’s set up your books in 30 seconds.</p>
                 </div>
                 {step === 1 && (
                     <div className='flex flex-col gap-4'>
-                        <label className='text-sm font-semibold'>What\u2019s your business name?</label>
+                        <label className='text-sm font-semibold'>What’s your business name?</label>
                         <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder='e.g. Main Street Barbershop' className='border border-[#e0ddd8] rounded px-3 py-2 bg-white text-sm' autoFocus />
-                        <button onClick={() => { if (businessName.trim()) setStep(2); }} disabled={!businessName.trim()} className={businessName.trim() ? btnOn : btnOff}>Next \u2192</button>
+                        <button onClick={() => { if (businessName.trim()) setStep(2); }} disabled={!businessName.trim()} className={businessName.trim() ? btnOn : btnOff}>Next →</button>
                     </div>
                 )}
                 {step === 2 && (
@@ -1363,8 +1363,8 @@ function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                             ))}
                         </div>
                         <div className='flex gap-3'>
-                            <button onClick={() => setStep(1)} className='text-sm opacity-60 hover:opacity-100'>\u2190 Back</button>
-                            <button onClick={() => { if (selectedProfile) setStep(3); }} disabled={!selectedProfile} className={selectedProfile ? btnOn + ' flex-1' : btnOff + ' flex-1'}>Next \u2192</button>
+                            <button onClick={() => setStep(1)} className='text-sm opacity-60 hover:opacity-100'>← Back</button>
+                            <button onClick={() => { if (selectedProfile) setStep(3); }} disabled={!selectedProfile} className={selectedProfile ? btnOn + ' flex-1' : btnOff + ' flex-1'}>Next →</button>
                         </div>
                     </div>
                 )}
@@ -1372,13 +1372,13 @@ function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
                     <div className='flex flex-col gap-4'>
                         <div className='border border-[#b68235] rounded-lg p-4 bg-[#b68235]/5'>
                             <div className='text-sm font-semibold'>Ready to go!</div>
-                            <p className='text-sm mt-1'>We\u2019ll create <strong>{businessName}</strong> as a <strong>{profiles.find((p) => p.id === selectedProfile)?.label}</strong> with a pre-configured Chart of Accounts and industry-specific KPI dashboard.</p>
+                            <p className='text-sm mt-1'>We’ll create <strong>{businessName}</strong> as a <strong>{profiles.find((p) => p.id === selectedProfile)?.label}</strong> with a pre-configured Chart of Accounts and industry-specific KPI dashboard.</p>
                             <p className='text-xs opacity-70 mt-2'>You can always change your profile later in Settings.</p>
                         </div>
                         {err && <p className='text-sm text-red-700'>{err}</p>}
                         <div className='flex gap-3'>
-                            <button onClick={() => setStep(2)} className='text-sm opacity-60 hover:opacity-100'>\u2190 Back</button>
-                            <button onClick={finish} disabled={busy} className={busy ? btnOff + ' flex-1' : btnOn + ' flex-1'}>{busy ? 'Setting up\u2026' : 'Launch my books \u2726'}</button>
+                            <button onClick={() => setStep(2)} className='text-sm opacity-60 hover:opacity-100'>← Back</button>
+                            <button onClick={finish} disabled={busy} className={busy ? btnOff + ' flex-1' : btnOn + ' flex-1'}>{busy ? 'Setting up…' : 'Launch my books ✦'}</button>
                         </div>
                     </div>
                 )}
