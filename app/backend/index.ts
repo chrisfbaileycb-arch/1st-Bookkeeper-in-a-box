@@ -47,6 +47,139 @@ async function resolveLoc(requested?: string) {
 
 const inLoc = (row: Record<string, any>, locId: string, defId: string) => String(row.locationId || defId) === locId;
 
+// ═══════════════════════════════════════════════════════════════════
+// AUTHENTICATION — single-tenant: one deployment = one business.
+// The owner sets a password once (POST /api/auth/setup); logins mint
+// random session tokens (30-day expiry) stored in `sessions`.
+// Every API route except the public ones below requires a valid
+// session token (Authorization: Bearer, x-api-token header, or the
+// api_token query/body field). Fail closed: no password set → 503;
+// missing/invalid token → 401. There is no multi-business tenancy in
+// the AppDeploy port — each deployment serves one business, and the
+// location picker isolates that business's books per location.
+// ═══════════════════════════════════════════════════════════════════
+const PUBLIC_ROUTES = new Set([
+    'GET /api/_healthcheck',
+    'GET /api/disclaimer',
+    'GET /api/auth/status',
+    'POST /api/auth/setup',
+    'POST /api/auth/login',
+]);
+const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
+const PBKDF2_ITERATIONS = 210000;
+
+const te = new TextEncoder();
+function b64encodeBytes(buf: ArrayBuffer | Uint8Array): string {
+    const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+}
+function b64decodeBytes(s: string): Uint8Array {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+function webCrypto(): Crypto {
+    const c = (globalThis as Record<string, unknown>).crypto as Crypto | undefined;
+    if (!c || !c.subtle || !c.getRandomValues) throw new Error('webcrypto_unavailable: cannot mint credentials on this runtime');
+    return c;
+}
+async function hashPassword(password: string, saltB64: string): Promise<string> {
+    const c = webCrypto();
+    const key = await c.subtle.importKey('raw', te.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await c.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: b64decodeBytes(saltB64), iterations: PBKDF2_ITERATIONS }, key, 256);
+    return b64encodeBytes(bits);
+}
+function newSaltB64(): string {
+    const b = new Uint8Array(16);
+    webCrypto().getRandomValues(b);
+    return b64encodeBytes(b);
+}
+function newSessionToken(): string {
+    const b = new Uint8Array(32);
+    webCrypto().getRandomValues(b);
+    return b64encodeBytes(b);
+}
+function safeEqual(a: string, b: string): boolean {
+    if (a.length !== b.length) return false;
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    return d === 0;
+}
+
+async function getAuthConfig(): Promise<Record<string, any> | null> {
+    const rows = await db.list('auth_config', { filter: { key: 'owner' } });
+    return rows.items[0] || null;
+}
+
+function extractToken(ctx: any): string | null {
+    const h = (ctx && ctx.headers) || {};
+    const authz = h['authorization'] || h['Authorization'];
+    if (typeof authz === 'string' && authz.toLowerCase().startsWith('bearer ')) return authz.slice(7).trim() || null;
+    const xkt = h['x-api-token'] || h['X-Api-Token'];
+    if (typeof xkt === 'string' && xkt.trim()) return xkt.trim();
+    const q = ctx && ctx.query && ctx.query.api_token;
+    if (typeof q === 'string' && q.trim()) return q.trim();
+    const b = ctx && ctx.body && (ctx.body as Record<string, any>).api_token;
+    if (typeof b === 'string' && b.trim()) return b.trim();
+    return null;
+}
+
+type AuthCheck = { ok: true; label: string } | { ok: false; response: unknown };
+async function checkAuth(ctx: any): Promise<AuthCheck> {
+    const cfg = await getAuthConfig();
+    if (!cfg) return { ok: false, response: error('auth_not_configured: no owner password set — POST /api/auth/setup once to claim this deployment', 503) };
+    const token = extractToken(ctx);
+    if (!token) return { ok: false, response: error('authentication_required: log in and pass your session token', 401) };
+    const rows = await db.list('sessions', { filter: { token } });
+    const sess = rows.items[0];
+    if (!sess || Number(sess.expiresAt) < Date.now() || sess.revoked) {
+        return { ok: false, response: error('invalid_or_expired_session: log in again', 401) };
+    }
+    return { ok: true, label: 'session:' + String(sess.id).slice(0, 8) };
+}
+
+function withAuth(routes: Record<string, Array<(ctx: any) => Promise<unknown>>>) {
+    const out: Record<string, Array<(ctx: any) => Promise<unknown>>> = {};
+    for (const [key, handlers] of Object.entries(routes)) {
+        if (PUBLIC_ROUTES.has(key)) { out[key] = handlers; continue; }
+        out[key] = handlers.map((h) => async (ctx: any) => {
+            const a = await checkAuth(ctx);
+            if (!a.ok) return a.response;
+            (ctx as Record<string, any>).auth = a;
+            return h(ctx);
+        });
+    }
+    return out;
+}
+
+// ── Audit trail (append-only: nothing in this codebase updates or deletes audit_log) ──
+async function auditLog(action: string, entity: string, entityId: string, before: unknown, after: unknown, meta?: { actor?: string; detail?: string; locationId?: string }) {
+    try {
+        await db.add('audit_log', [{
+            ts: new Date().toISOString(),
+            actor: (meta && meta.actor) || 'api',
+            action, entity, entityId: String(entityId),
+            before: before === undefined ? null : before,
+            after: after === undefined ? null : after,
+            detail: (meta && meta.detail) || null,
+            locationId: (meta && meta.locationId) || null,
+        }]);
+    } catch (e) {
+        console.error('audit_log write failed', e);
+    }
+}
+
+// Active industry profile for a location (defaults to restaurant)
+async function locationProfileId(locId: string): Promise<string> {
+    const locs = await listAll('locations');
+    const loc = locs.find((l) => String(l.id) === String(locId));
+    const pid = loc && loc.verticalProfile;
+    return pid && VERTICALS[pid] ? pid : 'restaurant';
+}
+
 // ── Multi-vertical Chart of Accounts framework ──
 // Each industry profile defines its own COA template and KPI definitions.
 // The active profile is stored per-location; defaults to 'restaurant'.
@@ -207,8 +340,9 @@ async function ensureCoa(): Promise<Array<Record<string, any>>> {
 
 type JLine = { accountName: string; debit: number; credit: number; description?: string };
 type JEntry = { journalNo: string; entryDate: string; description: string; source: string; lines: JLine[] };
+type PostMeta = { actor?: string; corrects?: string; reverses?: string };
 
-async function postEntry(entry: JEntry, locId: string, defId: string): Promise<{ ok: boolean; message?: string }> {
+async function postEntry(entry: JEntry, locId: string, defId: string, meta?: PostMeta): Promise<{ ok: boolean; message?: string; id?: string }> {
     const accounts = await ensureCoa();
     const byName = new Map(accounts.map((a) => [String(a.name).toLowerCase(), a]));
     const parents = new Set(accounts.filter((a) => a.parentAccountNo).map((a) => a.parentAccountNo));
@@ -225,9 +359,16 @@ async function postEntry(entry: JEntry, locId: string, defId: string): Promise<{
     if (Math.abs(cents(dr) - cents(cr)) > 0.005) return { ok: false, message: 'unbalanced: debits ' + cents(dr).toFixed(2) + ' vs credits ' + cents(cr).toFixed(2) };
     const existing = await db.list('journal_entries', { filter: { journalNo: entry.journalNo } });
     if (existing.items.some((e) => inLoc(e, locId, defId))) return { ok: false, message: 'journal ' + entry.journalNo + ' already posted' };
-    const [id] = await db.add('journal_entries', [{ ...entry, locationId: locId, createdAt: Date.now() }]);
+    const actor = (meta && meta.actor) || 'owner';
+    const corrects = (meta && meta.corrects) || null;
+    const reverses = (meta && meta.reverses) || null;
+    const [id] = await db.add('journal_entries', [{ ...entry, locationId: locId, createdAt: Date.now(), actor, corrects, reverses }]);
     if (!id) return { ok: false, message: 'failed to save journal entry' };
-    return { ok: true };
+    await auditLog('ledger.post', 'journal_entry', String(id),
+        null,
+        { journalNo: entry.journalNo, entryDate: entry.entryDate, description: entry.description, source: entry.source, corrects, reverses, lineCount: entry.lines.length },
+        { actor, locationId: locId });
+    return { ok: true, id: String(id) };
 }
 
 async function locEntries(locId: string, defId: string): Promise<Array<Record<string, any>>> {
@@ -454,7 +595,24 @@ function parsePayrollCsv(csv: string) {
     return { ok: true as const, runs };
 }
 
-function buildPayrollEntries(run: Record<string, any>): JEntry[] {
+// Wage debit accounts follow the active industry profile: the CSV columns
+// boh_gross/foh_gross are the two wage groups for every vertical, but the
+// account names come from the profile's COA (6001/6002) so non-restaurant
+// profiles post to accounts that actually exist.
+function wageDebitNames(profileId: string): { wage1: string; wage2: string } {
+    const prof = VERTICALS[profileId] || VERTICALS.restaurant;
+    const nameOf = (no: string, fallback: string) => {
+        const hit = prof.coa.find(([n]) => n === no);
+        return hit ? String(hit[1]) : fallback;
+    };
+    return {
+        wage1: nameOf('6001', 'Wages - Kitchen (BOH)'),
+        wage2: nameOf('6002', 'Wages - Service (FOH)')
+    };
+}
+
+function buildPayrollEntries(run: Record<string, any>, profileId?: string): JEntry[] {
+    const wages = wageDebitNames(profileId || 'restaurant');
     const line = (accountName: string, description: string, debit: number, credit: number): JLine => ({ accountName, description, debit, credit });
     const employerTaxes = cents(run.employerFedTaxes + run.employerFuta + run.employerSuiCo + run.employerFamli);
     const fedLiability = cents(run.employerFedTaxes + run.fedWithholding);
@@ -473,8 +631,8 @@ function buildPayrollEntries(run: Record<string, any>): JEntry[] {
         description: 'Payroll journal - pay date ' + run.payDate,
         source: 'payroll_import',
         lines: [
-            ...(run.bohGross > 0 ? [line('Wages - Kitchen (BOH)', 'Gross wages BOH', cents(run.bohGross), 0)] : []),
-            ...(run.fohGross > 0 ? [line('Wages - Service (FOH)', 'Gross wages FOH', cents(run.fohGross), 0)] : []),
+            ...(run.bohGross > 0 ? [line(wages.wage1, 'Gross wages — ' + wages.wage1, cents(run.bohGross), 0)] : []),
+            ...(run.fohGross > 0 ? [line(wages.wage2, 'Gross wages — ' + wages.wage2, cents(run.fohGross), 0)] : []),
             ...(employerTaxes > 0 ? [line('Payroll Taxes', 'Employer payroll taxes', employerTaxes, 0)] : []),
             ...liabilities.map(([name, amount]) => line(name, 'Payroll liability accrual', 0, amount)),
             ...(run.netPaySweep > 0 ? [line('Cash - General', 'Net pay sweep by payroll provider', 0, cents(run.netPaySweep))] : [])
@@ -749,9 +907,61 @@ const SCHEMA = {
     required: ['vendor_name', 'line_items', 'confidence']
 };
 
-export const handler = router({
+const apiRoutes = {
     'GET /api/_healthcheck': [async () => json({ message: 'Success' })],
     'GET /api/disclaimer': [async () => json({ disclaimer: DISCLAIMER, postDisclaimer: POST_DISCLAIMER })],
+
+    // ── Owner authentication (single-tenant: this deployment serves one business) ──
+    'GET /api/auth/status': [async () => json({ configured: !!(await getAuthConfig()) })],
+    'POST /api/auth/setup': [async ({ body }) => {
+        if (await getAuthConfig()) return error('already_configured: the owner password is already set — use login', 409);
+        const b = (body || {}) as { password?: string };
+        const pw = b.password || '';
+        if (pw.length < 12) return error('password must be at least 12 characters', 400);
+        const salt = newSaltB64();
+        const hash = await hashPassword(pw, salt);
+        const token = newSessionToken();
+        await db.add('auth_config', [{ key: 'owner', salt, hash, createdAt: Date.now() }]);
+        await db.add('sessions', [{ token, label: 'setup-session', createdAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, revoked: false }]);
+        return json({ ok: true, token, expiresInDays: 30 });
+    }],
+    'POST /api/auth/login': [async ({ body }) => {
+        const cfg = await getAuthConfig();
+        if (!cfg) return error('auth_not_configured: no owner password set — POST /api/auth/setup once', 503);
+        const b = (body || {}) as { password?: string };
+        const pw = b.password || '';
+        const hash = await hashPassword(pw, String(cfg.salt));
+        if (!safeEqual(hash, String(cfg.hash))) return error('invalid_credentials', 401);
+        const token = newSessionToken();
+        await db.add('sessions', [{ token, label: 'session', createdAt: Date.now(), expiresAt: Date.now() + SESSION_TTL_MS, revoked: false }]);
+        return json({ ok: true, token, expiresInDays: 30 });
+    }],
+    'POST /api/auth/logout': [async (ctx: any) => {
+        const token = extractToken(ctx);
+        if (token) {
+            const rows = await db.list('sessions', { filter: { token } });
+            for (const s of rows.items) await db.update('sessions', [{ id: String(s.id), record: { ...s, revoked: true } }]);
+        }
+        return json({ ok: true });
+    }],
+    'POST /api/auth/change-password': [async (ctx: any) => {
+        const b = ((ctx && ctx.body) || {}) as { current_password?: string; new_password?: string };
+        const cfg = await getAuthConfig();
+        if (!cfg) return error('auth_not_configured', 503);
+        const cur = await hashPassword(b.current_password || '', String(cfg.salt));
+        if (!safeEqual(cur, String(cfg.hash))) return error('invalid_credentials', 401);
+        if ((b.new_password || '').length < 12) return error('new password must be at least 12 characters', 400);
+        const salt = newSaltB64();
+        const hash = await hashPassword(b.new_password || '', salt);
+        await db.update('auth_config', [{ id: String(cfg.id), record: { ...cfg, salt, hash } }]);
+        // Revoke every other session so a changed password actually locks out other devices
+        const token = extractToken(ctx);
+        const all = await listAll('sessions');
+        for (const s of all) {
+            if (String(s.token) !== String(token)) await db.update('sessions', [{ id: String(s.id), record: { ...s, revoked: true } }]);
+        }
+        return json({ ok: true });
+    }],
     'GET /api/locations': [async () => {
         const { locs, defId } = await getLocations();
         return json({ defaultId: defId, locations: locs.map((l) => ({ id: String(l.id), name: l.name, isDefault: String(l.id) === defId })) });
@@ -764,6 +974,7 @@ export const handler = router({
         if (locs.some((l) => String(l.name).toLowerCase() === name.toLowerCase())) return error('a location with that name already exists', 409);
         const [id] = await db.add('locations', [{ name, isDefault: false, createdAt: Date.now() }]);
         if (!id) return error('failed to create location', 500);
+        await auditLog('location.created', 'location', String(id), null, { name }, { actor: 'owner', locationId: String(id) });
         return json({ id: String(id), name });
     }],
     'POST /api/invoices/scan': [async ({ body }) => {
@@ -828,6 +1039,7 @@ export const handler = router({
         }, locId, defId);
         if (!posted.ok) return error(posted.message || 'posting failed', 422);
         await db.update('invoices', [{ id, record: { ...inv, posted: true, journalNo } }]);
+        await auditLog('invoice.posted', 'invoice', String(id), { posted: false }, { posted: true, journalNo, total }, { actor: 'owner', locationId: locId });
         return json({ posted: true, journalNo, total });
     }],
     'POST /api/ledger/daily-sales': [async ({ body }) => {
@@ -836,6 +1048,8 @@ export const handler = router({
         const date = b.business_date || '';
         if (!DATE_RE.test(date)) return error('business_date must be YYYY-MM-DD', 400);
         const { locId, defId } = await resolveLoc(b.location_id);
+        const profileId = await locationProfileId(locId);
+        const revenueAccounts = POS_REVENUE_ACCOUNTS[profileId] || POS_REVENUE_ACCOUNTS.restaurant;
         const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? cents(v) : 0);
         const food = n(b.food_sales), bev = n(b.beverage_sales), tax = n(b.sales_tax), tips = n(b.cc_tips), cash = n(b.cash_collected), fees = n(b.processing_fees);
         const collected = cents(food + bev + tax + tips);
@@ -847,8 +1061,8 @@ export const handler = router({
             ...(cash > 0 ? [{ accountName: 'Cash Drawer', debit: cash, credit: 0 }] : []),
             ...(cardGross > 0 ? [{ accountName: 'Other Tender Clearing', debit: cents(cardGross - fees), credit: 0 }] : []),
             ...(fees > 0 ? [{ accountName: 'POS and Software Fees', debit: fees, credit: 0 }] : []),
-            ...(food > 0 ? [{ accountName: 'Food Sales', debit: 0, credit: food }] : []),
-            ...(bev > 0 ? [{ accountName: 'Beverage Sales', debit: 0, credit: bev }] : []),
+            ...(food > 0 ? [{ accountName: revenueAccounts.primary, debit: 0, credit: food }] : []),
+            ...(bev > 0 ? [{ accountName: revenueAccounts.secondary, debit: 0, credit: bev }] : []),
             ...(tax > 0 ? [{ accountName: 'Sales Tax Payable - CO', debit: 0, credit: tax }] : []),
             ...(tips > 0 ? [{ accountName: 'Tips Payable', debit: 0, credit: tips }] : [])
         ];
@@ -961,6 +1175,7 @@ export const handler = router({
         const posted = await postEntry({ journalNo: 'BK-' + id, entryDate: String(line.txnDate), description: (isDeposit ? 'Bank deposit: ' : 'Bank expense: ') + line.description, source: 'bank_import', lines: jl }, locId, defId);
         if (!posted.ok) return error(posted.message || 'posting failed', 422);
         await db.update('bank_lines', [{ id, record: { ...line, status: 'posted', matchedAccount: accountName, journalNo: 'BK-' + id } }]);
+        await auditLog('bank.categorized', 'bank_line', String(id), { status: 'review' }, { status: 'posted', matchedAccount: accountName, journalNo: 'BK-' + id }, { actor: 'owner', locationId: locId });
         return json({ posted: true, journalNo: 'BK-' + id });
     }],
     'POST /api/bank/ignore': [async ({ body }) => {
@@ -971,6 +1186,7 @@ export const handler = router({
         if (!line || !inLoc(line, locId, defId)) return error('bank line not found', 404);
         if (line.status !== 'review') return error('line already handled', 409);
         await db.update('bank_lines', [{ id, record: { ...line, status: 'ignored' } }]);
+        await auditLog('bank.ignored', 'bank_line', String(id), { status: 'review' }, { status: 'ignored' }, { actor: 'owner', locationId: locId });
         return json({ ignored: true });
     }],
     'GET /api/ledger/journal': [async ({ query }) => {
@@ -981,7 +1197,96 @@ export const handler = router({
         const inRange = entries
             .filter((e) => String(e.entryDate) >= from && String(e.entryDate) <= to)
             .sort((a, b) => (String(a.entryDate) < String(b.entryDate) ? -1 : String(a.entryDate) > String(b.entryDate) ? 1 : String(a.journalNo) < String(b.journalNo) ? -1 : 1));
-        return json({ from, to, count: inRange.length, entries: inRange.map((e) => ({ journalNo: e.journalNo, entryDate: e.entryDate, description: e.description, source: e.source, lines: e.lines })) });
+        return json({ from, to, count: inRange.length, entries: inRange.map((e) => ({ journalNo: e.journalNo, entryDate: e.entryDate, description: e.description, source: e.source, lines: e.lines, voided: !!e.voided, voidedBy: e.voidedBy || null, reversedBy: e.reversedBy || null, corrects: e.corrects || null, reverses: e.reverses || null })) });
+    }],
+
+    // ── Corrections, voids, reversals ──
+    // Posted entries are never edited or deleted. Mistakes are fixed with new
+    // entries that link back to the original, keeping a complete audit trail.
+    'POST /api/ledger/void': [async ({ body }) => {
+        const b = (body || {}) as { journal_no?: string; reason?: string; ack?: boolean; location_id?: string };
+        if (b.ack !== true) return error('disclaimer_acknowledgement_required: ' + POST_DISCLAIMER, 428);
+        const journalNo = (b.journal_no || '').trim();
+        const reason = (b.reason || '').trim();
+        if (!journalNo) return error('journal_no is required', 400);
+        if (!reason) return error('reason is required: every void must be explained', 400);
+        const { locId, defId } = await resolveLoc(b.location_id);
+        const orig = (await locEntries(locId, defId)).find((e) => e.journalNo === journalNo);
+        if (!orig) return error('journal entry not found', 404);
+        if (orig.voided) return error('entry already voided by ' + orig.voidedBy, 409);
+        if (orig.reversedBy) return error('entry already reversed by ' + orig.reversedBy, 409);
+        const flip = ((orig.lines || []) as JLine[]).map((l) => ({ accountName: l.accountName, description: 'Void of ' + journalNo + (l.description ? ' — ' + l.description : ''), debit: l.credit, credit: l.debit }));
+        const voidNo = 'VOID-' + journalNo;
+        const posted = await postEntry({
+            journalNo: voidNo, entryDate: String(orig.entryDate),
+            description: 'VOID of ' + journalNo + ' (' + orig.description + ') — reason: ' + reason,
+            source: 'void', lines: flip
+        }, locId, defId, { reverses: journalNo });
+        if (!posted.ok) return error(posted.message || 'void posting failed', 422);
+        await db.update('journal_entries', [{ id: String(orig.id), record: { ...orig, voided: true, voidedBy: voidNo, voidReason: reason, voidedAt: new Date().toISOString() } }]);
+        await auditLog('ledger.void', 'journal_entry', String(orig.id), { journalNo }, { voidedBy: voidNo, reason }, { actor: 'owner', locationId: locId, detail: reason });
+        return json({ voided: true, original: journalNo, voidEntry: voidNo });
+    }],
+    'POST /api/ledger/reverse': [async ({ body }) => {
+        const b = (body || {}) as { journal_no?: string; reason?: string; reversal_date?: string; ack?: boolean; location_id?: string };
+        if (b.ack !== true) return error('disclaimer_acknowledgement_required: ' + POST_DISCLAIMER, 428);
+        const journalNo = (b.journal_no || '').trim();
+        const reason = (b.reason || '').trim();
+        if (!journalNo) return error('journal_no is required', 400);
+        if (!reason) return error('reason is required: every reversal must be explained', 400);
+        const revDate = b.reversal_date || new Date().toISOString().slice(0, 10);
+        if (!DATE_RE.test(revDate)) return error('reversal_date must be YYYY-MM-DD', 400);
+        const { locId, defId } = await resolveLoc(b.location_id);
+        const orig = (await locEntries(locId, defId)).find((e) => e.journalNo === journalNo);
+        if (!orig) return error('journal entry not found', 404);
+        if (orig.voided) return error('entry was voided by ' + orig.voidedBy + ' — nothing to reverse', 409);
+        if (orig.reversedBy) return error('entry already reversed by ' + orig.reversedBy, 409);
+        const flip = ((orig.lines || []) as JLine[]).map((l) => ({ accountName: l.accountName, description: 'Reversal of ' + journalNo + (l.description ? ' — ' + l.description : ''), debit: l.credit, credit: l.debit }));
+        const revNo = 'REV-' + journalNo;
+        const posted = await postEntry({
+            journalNo: revNo, entryDate: revDate,
+            description: 'REVERSAL of ' + journalNo + ' (' + orig.description + ') — reason: ' + reason,
+            source: 'reversal', lines: flip
+        }, locId, defId, { reverses: journalNo });
+        if (!posted.ok) return error(posted.message || 'reversal posting failed', 422);
+        await db.update('journal_entries', [{ id: String(orig.id), record: { ...orig, reversedBy: revNo, reversedAt: new Date().toISOString(), reversalReason: reason } }]);
+        await auditLog('ledger.reverse', 'journal_entry', String(orig.id), { journalNo }, { reversedBy: revNo, reversalDate: revDate, reason }, { actor: 'owner', locationId: locId, detail: reason });
+        return json({ reversed: true, original: journalNo, reversalEntry: revNo });
+    }],
+    'POST /api/ledger/correct': [async ({ body }) => {
+        const b = (body || {}) as { journal_no?: string; reason?: string; entry_date?: string; description?: string; lines?: JLine[]; ack?: boolean; location_id?: string };
+        if (b.ack !== true) return error('disclaimer_acknowledgement_required: ' + POST_DISCLAIMER, 428);
+        const journalNo = (b.journal_no || '').trim();
+        const reason = (b.reason || '').trim();
+        if (!journalNo) return error('journal_no is required', 400);
+        if (!reason) return error('reason is required: every correction must be explained', 400);
+        if (!Array.isArray(b.lines) || b.lines.length === 0) return error('lines is required: supply the correcting journal lines', 400);
+        const entryDate = b.entry_date || new Date().toISOString().slice(0, 10);
+        if (!DATE_RE.test(entryDate)) return error('entry_date must be YYYY-MM-DD', 400);
+        const { locId, defId } = await resolveLoc(b.location_id);
+        const orig = (await locEntries(locId, defId)).find((e) => e.journalNo === journalNo);
+        if (!orig) return error('journal entry not found', 404);
+        if (orig.voided) return error('entry was voided — correct the void instead', 409);
+        const correctNo = 'CORR-' + journalNo + '-' + entryDate.replace(/-/g, '');
+        const posted = await postEntry({
+            journalNo: correctNo, entryDate,
+            description: 'CORRECTION to ' + journalNo + ' — ' + (b.description || reason),
+            source: 'correction', lines: b.lines
+        }, locId, defId, { corrects: journalNo });
+        if (!posted.ok) return error(posted.message || 'correction posting failed', 422);
+        await auditLog('ledger.correct', 'journal_entry', String(orig.id), { journalNo }, { correctionEntry: correctNo, reason }, { actor: 'owner', locationId: locId, detail: reason });
+        return json({ corrected: true, original: journalNo, correctionEntry: correctNo });
+    }],
+    'GET /api/audit/log': [async ({ query }) => {
+        const from = query.from && DATE_RE.test(query.from) ? query.from : '0000-01-01';
+        const to = query.to && DATE_RE.test(query.to) ? query.to : '9999-12-31';
+        const { locId, defId } = await resolveLoc(query.location);
+        const rows = (await listAll('audit_log'))
+            .filter((a) => inLoc(a, locId, defId))
+            .filter((a) => { const d = String(a.ts || '').slice(0, 10); return d >= from && d <= to; })
+            .sort((a, b) => (String(a.ts) < String(b.ts) ? 1 : -1))
+            .slice(0, 500);
+        return json({ from, to, count: rows.length, entries: rows });
     }],
     'GET /api/ap/aging': [async ({ query }) => {
         const asOf = query.as_of && DATE_RE.test(query.as_of) ? query.as_of : new Date().toISOString().slice(0, 10);
@@ -1023,6 +1328,7 @@ export const handler = router({
         const posted = await postEntry({ journalNo: 'AP-PAY-' + (inv.invoiceNo || b.id), entryDate: b.payment_date, description: 'Payment to ' + (inv.vendorName || 'vendor') + (inv.invoiceNo ? ' for invoice #' + inv.invoiceNo : '') + ' (' + method + ')', source: 'ap_payment', lines: [{ accountName: 'Accounts Payable', debit: amount, credit: 0 }, { accountName: 'Cash - General', debit: 0, credit: amount }] }, locId, defId);
         if (!posted.ok) return error(posted.message || 'posting failed', 422);
         await db.update('invoices', [{ id: b.id, record: { ...inv, paid: true, paidDate: b.payment_date, paymentCheckNo: checkNumber || null } }]);
+        await auditLog('invoice.paid', 'invoice', String(b.id), { paid: false }, { paid: true, paidDate: b.payment_date, amount, method }, { actor: 'owner', locationId: locId, detail: method });
         if (checkNumber) await db.add('checks', [{ checkNumber, checkDate: b.payment_date, payee: inv.vendorName || 'vendor', writtenAmount: amount, memo: inv.invoiceNo ? 'AP invoice ' + inv.invoiceNo : 'AP payment', status: 'outstanding', locationId: locId, createdAt: Date.now() }]);
         return json({ paid: true, invoiceNo: inv.invoiceNo || '', vendor: inv.vendorName || '', amount, paymentDate: b.payment_date, method });
     }],
@@ -1043,6 +1349,7 @@ export const handler = router({
         const c = found.items.find((x) => inLoc(x, locId, defId));
         if (!c) return error('check_not_found', 404);
         await db.update('checks', [{ id: String(c.id), record: { ...c, status: b.status } }]);
+        await auditLog('check.status', 'check', String(c.id), { status: c.status }, { status: b.status }, { actor: 'owner', locationId: locId, detail: 'check ' + b.check_number });
         return json({ checkNumber: b.check_number, status: b.status });
     }],
     'POST /api/delivery/import': [async ({ body }) => {
@@ -1070,6 +1377,7 @@ export const handler = router({
                 refunds: cents(s.refunds), driverTips: cents(s.driverTips), netPayout: cents(s.netPayout),
                 locationId: locId, createdAt: Date.now()
             }]);
+            await auditLog('delivery.statement_imported', 'delivery_statement', s.platform + '/' + s.periodStart + '/' + s.periodEnd, null, { platform: s.platform, periodStart: s.periodStart, periodEnd: s.periodEnd, netPayout: cents(s.netPayout) }, { actor: 'owner', locationId: locId });
         }
         return json({ imported: parsed.statements.length, entriesPosted });
     }],
@@ -1091,9 +1399,10 @@ export const handler = router({
         if (b.ack !== true) return error('disclaimer_acknowledgement_required: ' + POST_DISCLAIMER, 428);
         if (!b.csv || typeof b.csv !== 'string') return error('csv is required', 400);
         const { locId, defId } = await resolveLoc(b.location_id);
+        const profileId = await locationProfileId(locId);
         const parsed = parsePayrollCsv(b.csv);
         if (!parsed.ok) return error('strict_validation_failed: ' + parsed.errors.map((e) => 'line ' + e.line + ': ' + e.message).join('; '), 422);
-        const entries = parsed.runs.flatMap(buildPayrollEntries);
+        const entries = parsed.runs.flatMap((r) => buildPayrollEntries(r, profileId));
         let entriesPosted = 0, entriesSkipped = 0;
         for (const e of entries) {
             const posted = await postEntry(e, locId, defId);
@@ -1144,6 +1453,7 @@ export const handler = router({
         if (status === 'FILED') {
             if (overrides.length === 0) await db.add('compliance_events', [{ taxType: b.tax_type, periodEnd: b.period_end, status: 'FILED', locationId: locId, createdAt: Date.now() }]);
             else await db.update('compliance_events', [{ id: String(overrides[0].id), record: { ...overrides[0], status: 'FILED' } }]);
+            await auditLog('compliance.marked', 'compliance_event', b.tax_type + '|' + b.period_end, { status: 'UPCOMING' }, { status: 'FILED' }, { actor: 'owner', locationId: locId });
         } else {
             for (const o of overrides) await db.update('compliance_events', [{ id: String(o.id), record: { ...o, status: 'UPCOMING' } }]);
         }
@@ -1217,6 +1527,7 @@ export const handler = router({
             if (!posted.ok) return error(posted.message || 'posting failed', 422);
         }
         await db.add('inventory_counts', [{ countDate: b.count_date, variances, adjusted: entry !== null, locationId: locId, createdAt: Date.now() }]);
+        await auditLog('inventory.counted', 'inventory_count', String(b.count_date), null, { variances, adjusted: entry !== null }, { actor: 'owner', locationId: locId });
         return json({ countDate: b.count_date, adjusted: entry !== null, variances });
     }],
     'GET /api/inventory/counts': [async ({ query }) => {
@@ -1285,6 +1596,7 @@ export const handler = router({
         const loc = locs.find((l) => String(l.id) === locId);
         if (!loc) return error('location not found', 404);
         await db.update('locations', [{ id: locId, record: { ...loc, verticalProfile: b.profile_id } }]);
+        await auditLog('location.profile_changed', 'location', String(locId), { verticalProfile: loc.verticalProfile || 'restaurant' }, { verticalProfile: b.profile_id }, { actor: 'owner', locationId: locId });
         // Re-seed COA if switching profiles and accounts table is empty or needs new accounts
         const profile = VERTICALS[b.profile_id];
         const existing = await listAll('accounts');
@@ -1513,4 +1825,7 @@ export const handler = router({
         }
         return json({ format: header.includes('fee') ? 'extended' : header.includes('debit') || header.includes('credit') ? 'debit_credit' : 'simple', rowsParsed: parsedRows.length, depositsMatched, checksMatched, queuedForReview, duplicates, feesPosted });
     }]
-});
+};
+
+// Every non-public route above is fail-closed behind owner auth.
+export const handler = router(withAuth(apiRoutes));
