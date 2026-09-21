@@ -1,6 +1,21 @@
 import { useEffect, useState } from 'react';
-import { api, image } from '@appdeploy/client';
+import { api as rawApi, image } from '@appdeploy/client';
 import { ScanLine, AlertTriangle, Copy, Check, BookOpen, ArrowRight, Sparkles, Send } from 'lucide-react';
+
+// ── Owner session ──
+// Every backend call carries the owner session token: on the query string for
+// GETs, in the body for POSTs (the backend also accepts an Authorization:
+// Bearer header). The token is minted at setup/login and lives 30 days.
+const sessionToken = () => localStorage.getItem('rb_session') || '';
+const api = {
+    get: (path: string) => rawApi.get(path + (path.includes('?') ? '&' : '?') + 'api_token=' + encodeURIComponent(sessionToken())),
+    post: (path: string, body: Record<string, any>) => rawApi.post(path, { ...body, api_token: sessionToken() })
+};
+async function logout() {
+    try { await api.post('/api/auth/logout', {}); } catch { /* token dies client-side regardless */ }
+    localStorage.removeItem('rb_session');
+    window.location.reload();
+}
 
 type Line = { description?: string; qty?: number | null; unit_price?: number | null; category?: string };
 type Extracted = { vendor_name?: string; invoice_no?: string; invoice_date?: string; due_date?: string; subtotal?: number | null; tax?: number | null; total?: number | null; line_items: Line[]; confidence: number; warnings: string[] };
@@ -415,6 +430,20 @@ function Compliance() {
     );
 }
 
+// ── Void / reverse a posted journal entry (with a required reason) ──
+async function voidOrReverse(journalNo: string, kind: 'void' | 'reverse', refresh: () => void) {
+    const reason = window.prompt((kind === 'void' ? 'Void ' : 'Reverse ') + journalNo + '?\nThe original stays in the books; an offsetting entry is posted.\n\nReason (required):');
+    if (reason === null) return;
+    if (!reason.trim()) { window.alert('A reason is required — voids and reversals must be explained.'); return; }
+    const ok = window.confirm((kind === 'void' ? 'VOID ' : 'REVERSE ') + journalNo + ' — ' + reason.trim() + '\n\nThis cannot be undone except by another entry. Continue?');
+    if (!ok) return;
+    try {
+        const r = await lapi.post('/api/ledger/' + kind, { ack: true, journal_no: journalNo, reason: reason.trim() });
+        window.alert((kind === 'void' ? 'Voided. Offsetting entry: ' : 'Reversed. Offsetting entry: ') + (r.data.voidEntry || r.data.reversalEntry));
+        refresh();
+    } catch (e) { window.alert((e as { message?: string }).message || (kind + ' failed')); }
+}
+
 function Reports() {
     const today = new Date();
     const mtdFrom = iso(new Date(Date.UTC(today.getFullYear(), today.getMonth(), 1)));
@@ -517,13 +546,19 @@ function Reports() {
                 )}
                 {which === 'jr' && jr && (
                     <div>
-                        <p className='text-xs opacity-60 mb-2'>{jr.count} entr{jr.count === 1 ? 'y' : 'ies'} — every posting, line by line.</p>
+                        <p className='text-xs opacity-60 mb-2'>{jr.count} entr{jr.count === 1 ? 'y' : 'ies'} — every posting, line by line. Posted entries are never edited or deleted: fix mistakes with a void or reversal, which stay linked in the audit trail.</p>
                         {((jr.entries || []) as Array<Record<string, any>>).map((e) => (
                             <div key={e.journalNo} className='mb-3 border-b border-[#e0ddd8] pb-2'>
-                                <div className='flex justify-between text-sm'><span>{e.entryDate} · <span className='text-[#8a5f22]'>{e.journalNo}</span> · {e.description}</span><span className='text-xs opacity-60'>{e.source}</span></div>
+                                <div className='flex justify-between text-sm gap-2'><span>{e.entryDate} · <span className='text-[#8a5f22]'>{e.journalNo}</span> · {e.description}{e.voided && <span className='text-red-700 font-semibold'> · VOIDED ({e.voidedBy})</span>}{e.reversedBy && <span className='text-red-700 font-semibold'> · REVERSED ({e.reversedBy})</span>}{e.corrects && <span className='opacity-70'> · corrects {e.corrects}</span>}{e.reverses && <span className='opacity-70'> · reverses {e.reverses}</span>}</span><span className='text-xs opacity-60 shrink-0'>{e.source}</span></div>
                                 {((e.lines || []) as Array<Record<string, any>>).map((l, i) => (
                                     <div key={i} className='flex justify-between text-xs pl-4 py-0.5 gap-3'><span className='flex-1 min-w-0'>{l.accountName}</span><span className='tabular-nums w-24 text-right'>{Number(l.debit) > 0 ? money(Number(l.debit)) : ''}</span><span className='tabular-nums w-24 text-right'>{Number(l.credit) > 0 ? money(Number(l.credit)) : ''}</span></div>
                                 ))}
+                                {!e.voided && !e.reversedBy && (
+                                    <div className='pl-4 mt-1 flex gap-2'>
+                                        <button onClick={() => voidOrReverse(e.journalNo, 'void', run)} className='text-xs text-red-700 hover:underline'>Void…</button>
+                                        <button onClick={() => voidOrReverse(e.journalNo, 'reverse', run)} className='text-xs text-[#8a5f22] hover:underline'>Reverse…</button>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -970,8 +1005,38 @@ function Reconciliation() {
     );
 }
 
-function Settings() {
-    const [verticals, setVerticals] = useState<Array<Record<string, any>>>([]);
+// ── Owner password change (Settings) ──
+function ChangePassword() {
+    const [cur, setCur] = useState('');
+    const [nw, setNw] = useState('');
+    const [nw2, setNw2] = useState('');
+    const [msg, setMsg] = useState('');
+    const [busy, setBusy] = useState(false);
+    async function submit() {
+        setMsg('');
+        if (nw.length < 12) { setMsg('New password must be at least 12 characters.'); return; }
+        if (nw !== nw2) { setMsg('New passwords do not match.'); return; }
+        setBusy(true);
+        try {
+            await api.post('/api/auth/change-password', { current_password: cur, new_password: nw });
+            setMsg('Password changed. Other devices were signed out.');
+            setCur(''); setNw(''); setNw2('');
+        } catch (e) { setMsg((e as { message?: string }).message || 'Change failed.'); }
+        finally { setBusy(false); }
+    }
+    return (
+        <section className='border border-[#e0ddd8] rounded bg-white/60 p-4 flex flex-col gap-3 mt-4'>
+            <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold'>Owner password</div>
+            <input type='password' value={cur} onChange={(e) => setCur(e.target.value)} placeholder='Current password' autoComplete='current-password' className='border border-[#e0ddd8] rounded px-3 py-2 bg-white text-sm max-w-sm' />
+            <input type='password' value={nw} onChange={(e) => setNw(e.target.value)} placeholder='New password (12+ characters)' autoComplete='new-password' className='border border-[#e0ddd8] rounded px-3 py-2 bg-white text-sm max-w-sm' />
+            <input type='password' value={nw2} onChange={(e) => setNw2(e.target.value)} placeholder='Confirm new password' autoComplete='new-password' className='border border-[#e0ddd8] rounded px-3 py-2 bg-white text-sm max-w-sm' />
+            {msg && <p className='text-sm'>{msg}</p>}
+            <button onClick={submit} disabled={busy} className={(busy ? btnOff : btnOn) + ' self-start text-xs'}>{busy ? 'Changing…' : 'Change password'}</button>
+        </section>
+    );
+}
+
+function Settings() {    const [verticals, setVerticals] = useState<Array<Record<string, any>>>([]);
     const [active, setActive] = useState<Record<string, any> | null>(null);
     const [msg, setMsg] = useState('');
     const [busy, setBusy] = useState(false);
@@ -1006,6 +1071,7 @@ function Settings() {
                 ))}
             </div>
             {msg && <p className='text-sm mt-2'>{msg}</p>}
+            <ChangePassword />
             <section className='border border-[#e0ddd8] rounded bg-white/40 p-4 text-sm opacity-80 mt-4'>
                 <div className='text-[11px] tracking-widest uppercase text-[#8a5f22] font-semibold mb-1'>How profiles work</div>
                 <p>Each industry profile provides a specialized Chart of Accounts and KPI definitions tuned to that business type. Switching profiles adds any missing accounts to your ledger without removing existing ones. Your posted entries are never affected.</p>
@@ -1303,6 +1369,73 @@ function Billing() {
     );
 }
 
+// ── Owner authentication gate ──
+// First launch: set the owner password once (this claims the deployment).
+// After that: log in. Sessions last 30 days and are stored only in this browser.
+function AuthGate({ onAuth }: { onAuth: () => void }) {
+    const [mode, setMode] = useState<'checking' | 'setup' | 'login'>('checking');
+    const [pw, setPw] = useState('');
+    const [pw2, setPw2] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+
+    useEffect(() => {
+        rawApi.get('/api/auth/status').then((r) => {
+            setMode(r.data.configured ? 'login' : 'setup');
+        }).catch(() => setErr('Could not reach the server. Check your connection and reload.'));
+    }, []);
+
+    async function submit() {
+        setErr('');
+        if (mode === 'setup') {
+            if (pw.length < 12) { setErr('Password must be at least 12 characters.'); return; }
+            if (pw !== pw2) { setErr('Passwords do not match.'); return; }
+        } else if (!pw) { setErr('Enter your password.'); return; }
+        setBusy(true);
+        try {
+            const r = mode === 'setup'
+                ? await rawApi.post('/api/auth/setup', { password: pw })
+                : await rawApi.post('/api/auth/login', { password: pw });
+            localStorage.setItem('rb_session', String(r.data.token));
+            setPw(''); setPw2('');
+            onAuth();
+        } catch (e) {
+            setErr((e as { message?: string }).message || (mode === 'setup' ? 'Setup failed.' : 'Login failed.'));
+        } finally { setBusy(false); }
+    }
+
+    return (
+        <div className='fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4'>
+            <div className='bg-[#faf9f7] rounded-xl shadow-2xl max-w-md w-full p-8 flex flex-col gap-5'>
+                <div className='text-center flex flex-col items-center gap-2'>
+                    <Crate size={48} />
+                    <h1 className='text-2xl mt-2'>1st Bookkeeper<span className='text-[#b68235] text-base'> / In-A-Box</span></h1>
+                    <p className='text-sm opacity-70'>{mode === 'setup' ? 'Claim this deployment' : mode === 'login' ? 'Owner sign in' : 'Checking…'}</p>
+                </div>
+                {mode === 'setup' && (
+                    <p className='text-xs opacity-70 border border-[#b68235]/40 rounded p-3 bg-[#b68235]/5'>
+                        This is the first launch. Set an owner password to lock your books — every screen after this requires it. There is no password recovery: write it down somewhere safe.
+                    </p>
+                )}
+                {mode !== 'checking' && (
+                    <div className='flex flex-col gap-3'>
+                        <label className='text-sm font-semibold'>{mode === 'setup' ? 'Choose an owner password (12+ characters)' : 'Password'}</label>
+                        <input type='password' value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} className='border border-[#e0ddd8] rounded px-3 py-2 bg-white text-sm' autoFocus autoComplete={mode === 'setup' ? 'new-password' : 'current-password'} />
+                        {mode === 'setup' && (
+                            <>
+                                <label className='text-sm font-semibold'>Confirm password</label>
+                                <input type='password' value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); }} className='border border-[#e0ddd8] rounded px-3 py-2 bg-white text-sm' autoComplete='new-password' />
+                            </>
+                        )}
+                        {err && <p className='text-sm text-red-700'>{err}</p>}
+                        <button onClick={submit} disabled={busy} className={busy ? btnOff : btnOn + ' justify-center'}>{busy ? 'Working…' : mode === 'setup' ? 'Set password & start' : 'Sign in'}</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 // ── Getting Started Onboarding Wizard ──
 function OnboardingWizard({ onComplete }: { onComplete: () => void }) {
     const [step, setStep] = useState(1);
@@ -1409,19 +1542,26 @@ function App() {
     const [scanCount, setScanCount] = useState(0);
     const [locs, setLocs] = useState<Array<Record<string, any>>>([]);
     const [showOnboarding, setShowOnboarding] = useState(false);
+    const [authed, setAuthed] = useState(false);
 
     useEffect(() => {
         const onHash = () => setView(fromHash());
         window.addEventListener('hashchange', onHash);
-        lapi.get('/api/invoices').then((r) => setScanCount((r.data.invoices || []).length)).catch(() => {});
+        if (!sessionToken()) { setAuthed(false); return () => window.removeEventListener('hashchange', onHash); }
+        // Verify the session is still valid before loading any books data.
         api.get('/api/locations').then((r) => {
+            setAuthed(true);
             const locations = r.data.locations || [];
             setLocs(locations);
             // Show onboarding if no locations exist and user hasn't dismissed it
             if (locations.length === 0 && !localStorage.getItem('rb_onboarded')) {
                 setShowOnboarding(true);
             }
-        }).catch(() => {});
+            return lapi.get('/api/invoices');
+        }).then((r) => setScanCount((r.data.invoices || []).length)).catch(() => {
+            localStorage.removeItem('rb_session');
+            setAuthed(false);
+        });
         return () => window.removeEventListener('hashchange', onHash);
     }, []);
 
@@ -1472,6 +1612,7 @@ function App() {
                     <button className={tab(view === 'reconciliation')} onClick={() => go('reconciliation')} aria-current={view === 'reconciliation' ? 'page' : undefined}>Reconcile</button>
                     <button className={tab(view === 'settings')} onClick={() => go('settings')} aria-current={view === 'settings' ? 'page' : undefined}>Settings</button>
                     <button className={tab(view === 'billing')} onClick={() => go('billing')} aria-current={view === 'billing' ? 'page' : undefined}>Billing</button>
+                    <button onClick={() => { if (window.confirm('Sign out of 1st Bookkeeper-In-A-Box on this device?')) logout(); }} className='text-sm opacity-70 hover:opacity-100' title='Sign out'>Sign out</button>
                 </nav>
             </header>
             {view === 'home' ? <Home go={go} scanCount={scanCount} />
@@ -1490,6 +1631,7 @@ function App() {
                 : <Scanner />}
             <Guide view={view} />
             {showOnboarding && <OnboardingWizard onComplete={() => { setShowOnboarding(false); window.location.reload(); }} />}
+            {!authed && <AuthGate onAuth={() => window.location.reload()} />}
         </div>
     );
 }
