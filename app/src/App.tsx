@@ -8,7 +8,7 @@ import { ScanLine, AlertTriangle, Copy, Check, BookOpen, ArrowRight, Sparkles, S
 // Bearer header). The token is minted at setup/login and lives 30 days.
 const sessionToken = () => localStorage.getItem('rb_session') || '';
 const api = {
-    get: (path: string) => rawApi.get(path + (path.includes('?') ? '&' : '?') + 'api_token=' + encodeURIComponent(sessionToken())),
+    get: (path: string) => rawApi.get(path, { headers: { Authorization: 'Bearer ' + sessionToken() } }),
     post: (path: string, body: Record<string, any>) => rawApi.post(path, { ...body, api_token: sessionToken() })
 };
 async function logout() {
