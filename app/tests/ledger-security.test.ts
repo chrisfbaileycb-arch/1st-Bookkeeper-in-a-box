@@ -165,7 +165,7 @@ test('correct posts a linked adjusting entry without touching the original', asy
     assert.equal(p.status, 200);
     const c = await call('POST', '/api/ledger/correct', {
         body: authed(token, {
-            ack: true, journal_no: 'DS-2026-09-13', reason: 'food sales overstated by $50',
+            ack: true, entry_date: '2026-09-14', journal_no: 'DS-2026-09-13', reason: 'food sales overstated by $50',
             lines: [
                 { accountName: 'Food Sales', debit: 50, credit: 0 },
                 { accountName: 'Cash Drawer', debit: 0, credit: 50 },
