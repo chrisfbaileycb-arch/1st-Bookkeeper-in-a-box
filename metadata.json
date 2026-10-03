@@ -1,0 +1,8 @@
+{
+  "name": "1st Bookkeeper-In-A-Box",
+  "description": "Specialized ledger intelligence for restaurants, salons, tattoo parlors, and auto repair businesses.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
