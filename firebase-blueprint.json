@@ -1,0 +1,244 @@
+{
+  "entities": {
+    "Location": {
+      "title": "Location",
+      "description": "Multi-location business workspace with vertical industry profile",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "isDefault": { "type": "boolean" },
+        "verticalProfile": { "type": "string", "enum": ["restaurant", "salon", "tattoo", "auto_repair"] },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["name"]
+    },
+    "AuthConfig": {
+      "title": "AuthConfig",
+      "description": "Owner credential hash and salt configuration",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "maxLength": 50 },
+        "salt": { "type": "string", "maxLength": 100 },
+        "hash": { "type": "string", "maxLength": 150 },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["key", "salt", "hash"]
+    },
+    "Session": {
+      "title": "Session",
+      "description": "Active owner session tokens with expiry",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string", "maxLength": 128 },
+        "label": { "type": "string", "maxLength": 100 },
+        "expiresAt": { "type": "number" },
+        "revoked": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["token", "expiresAt", "revoked"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable append-only ledger change audit log",
+      "type": "object",
+      "properties": {
+        "ts": { "type": "string" },
+        "actor": { "type": "string", "maxLength": 100 },
+        "action": { "type": "string", "maxLength": 100 },
+        "entity": { "type": "string", "maxLength": 100 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "detail": { "type": "string" },
+        "locationId": { "type": "string" }
+      },
+      "required": ["ts", "actor", "action", "entity", "entityId"]
+    },
+    "Account": {
+      "title": "Account",
+      "description": "Chart of accounts master definition",
+      "type": "object",
+      "properties": {
+        "accountNo": { "type": "string", "maxLength": 20 },
+        "name": { "type": "string", "maxLength": 150 },
+        "type": { "type": "string", "enum": ["asset", "liability", "equity", "revenue", "cogs", "expense"] },
+        "qbType": { "type": "string", "maxLength": 100 },
+        "parentAccountNo": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["accountNo", "name", "type", "active"]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "Double-entry general journal posting",
+      "type": "object",
+      "properties": {
+        "journalNo": { "type": "string", "maxLength": 60 },
+        "entryDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "description": { "type": "string", "maxLength": 300 },
+        "source": { "type": "string", "maxLength": 60 },
+        "locationId": { "type": "string" },
+        "actor": { "type": "string", "maxLength": 100 },
+        "corrects": { "type": "string" },
+        "reverses": { "type": "string" },
+        "voided": { "type": "boolean" },
+        "voidedBy": { "type": "string" },
+        "voidReason": { "type": "string" },
+        "reversedBy": { "type": "string" },
+        "reversalReason": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["journalNo", "entryDate", "description", "source"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Scanned supplier invoice line items and posting status",
+      "type": "object",
+      "properties": {
+        "vendorName": { "type": "string", "maxLength": 200 },
+        "invoiceNo": { "type": "string", "maxLength": 100 },
+        "invoiceDate": { "type": "string" },
+        "dueDate": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "tax": { "type": "number" },
+        "total": { "type": "number" },
+        "confidence": { "type": "number" },
+        "posted": { "type": "boolean" },
+        "journalNo": { "type": "string" },
+        "paid": { "type": "boolean" },
+        "paidDate": { "type": "string" },
+        "paymentCheckNo": { "type": "string" },
+        "locationId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["vendorName", "createdAt"]
+    },
+    "Check": {
+      "title": "Check",
+      "description": "Check register record and bank reconciliation status",
+      "type": "object",
+      "properties": {
+        "checkNumber": { "type": "string", "maxLength": 30 },
+        "checkDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "payee": { "type": "string", "maxLength": 200 },
+        "writtenAmount": { "type": "number" },
+        "memo": { "type": "string", "maxLength": 300 },
+        "status": { "type": "string", "enum": ["outstanding", "cleared", "amount_mismatch", "voided"] },
+        "clearedDate": { "type": "string" },
+        "clearedAmount": { "type": "number" },
+        "locationId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["checkNumber", "checkDate", "payee", "writtenAmount", "status"]
+    },
+    "BankLine": {
+      "title": "BankLine",
+      "description": "Imported bank statement transaction with matching status",
+      "type": "object",
+      "properties": {
+        "txnDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "description": { "type": "string", "maxLength": 300 },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["review", "matched", "check_matched", "posted", "ignored"] },
+        "matchedCheck": { "type": "string" },
+        "matchedAccount": { "type": "string" },
+        "journalNo": { "type": "string" },
+        "locationId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["txnDate", "description", "amount", "status"]
+    },
+    "DeliveryStatement": {
+      "title": "DeliveryStatement",
+      "description": "Reconciled third-party delivery marketplace payout statement",
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string", "maxLength": 50 },
+        "periodStart": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "periodEnd": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "grossSales": { "type": "number" },
+        "commissions": { "type": "number" },
+        "marketingFees": { "type": "number" },
+        "refunds": { "type": "number" },
+        "driverTips": { "type": "number" },
+        "netPayout": { "type": "number" },
+        "locationId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["platform", "periodStart", "periodEnd", "grossSales", "netPayout"]
+    },
+    "ComplianceEvent": {
+      "title": "ComplianceEvent",
+      "description": "Colorado and federal tax filing event and status",
+      "type": "object",
+      "properties": {
+        "taxType": { "type": "string", "maxLength": 50 },
+        "periodEnd": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "status": { "type": "string", "enum": ["UPCOMING", "FILED", "OVERDUE"] },
+        "locationId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["taxType", "periodEnd", "status"]
+    },
+    "InventoryCount": {
+      "title": "InventoryCount",
+      "description": "Physical inventory count and ledger variance adjustments",
+      "type": "object",
+      "properties": {
+        "countDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "adjusted": { "type": "boolean" },
+        "locationId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["countDate", "adjusted"]
+    }
+  },
+  "firestore": {
+    "/locations/{locationId}": {
+      "schema": "Location",
+      "description": "Multi-location business workspaces"
+    },
+    "/auth_config/{authConfigId}": {
+      "schema": "AuthConfig",
+      "description": "Owner password configuration"
+    },
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Active authentication sessions"
+    },
+    "/audit_log/{auditLogId}": {
+      "schema": "AuditLog",
+      "description": "Immutable append-only audit trail"
+    },
+    "/accounts/{accountId}": {
+      "schema": "Account",
+      "description": "Chart of accounts master list"
+    },
+    "/journal_entries/{journalEntryId}": {
+      "schema": "JournalEntry",
+      "description": "Double-entry general journal entries"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "Supplier invoices and line items"
+    },
+    "/checks/{checkId}": {
+      "schema": "Check",
+      "description": "Check register and clearing status"
+    },
+    "/bank_lines/{bankLineId}": {
+      "schema": "BankLine",
+      "description": "Bank feed import lines"
+    },
+    "/delivery_statements/{deliveryStatementId}": {
+      "schema": "DeliveryStatement",
+      "description": "Delivery platform payout statements"
+    },
+    "/compliance_events/{complianceEventId}": {
+      "schema": "ComplianceEvent",
+      "description": "Tax compliance calendar events"
+    },
+    "/inventory_counts/{inventoryCountId}": {
+      "schema": "InventoryCount",
+      "description": "Physical inventory counts and variances"
+    }
+  }
+}

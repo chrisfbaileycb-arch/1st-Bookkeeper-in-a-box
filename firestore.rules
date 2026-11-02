@@ -1,0 +1,203 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net: Default-deny all unmapped paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Validation Blueprint: Location
+    function isValidLocation(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        (!('isDefault' in data) || data.isDefault is bool) &&
+        (!('verticalProfile' in data) || (data.verticalProfile is string && data.verticalProfile.size() <= 30));
+    }
+
+    // Validation Blueprint: Account
+    function isValidAccount(data) {
+      return data.accountNo is string && data.accountNo.size() > 0 && data.accountNo.size() <= 20 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 150 &&
+        data.type is string && data.type in ['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense'] &&
+        data.active is bool;
+    }
+
+    // Validation Blueprint: Journal Entry
+    function isValidJournalEntry(data) {
+      return data.journalNo is string && data.journalNo.size() > 0 && data.journalNo.size() <= 60 &&
+        data.entryDate is string && data.entryDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.description is string && data.description.size() <= 300 &&
+        data.source is string && data.source.size() <= 60 &&
+        (!('voided' in data) || data.voided is bool);
+    }
+
+    // Validation Blueprint: Invoice
+    function isValidInvoice(data) {
+      return data.vendorName is string && data.vendorName.size() > 0 && data.vendorName.size() <= 200 &&
+        (!('invoiceNo' in data) || (data.invoiceNo is string && data.invoiceNo.size() <= 100)) &&
+        (!('subtotal' in data) || data.subtotal is number) &&
+        (!('total' in data) || data.total is number) &&
+        (!('posted' in data) || data.posted is bool) &&
+        (!('paid' in data) || data.paid is bool);
+    }
+
+    // Validation Blueprint: Check
+    function isValidCheck(data) {
+      return data.checkNumber is string && data.checkNumber.size() > 0 && data.checkNumber.size() <= 30 &&
+        data.checkDate is string && data.checkDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.payee is string && data.payee.size() > 0 && data.payee.size() <= 200 &&
+        data.writtenAmount is number && data.writtenAmount >= 0 &&
+        data.status is string && data.status in ['outstanding', 'cleared', 'amount_mismatch', 'voided'];
+    }
+
+    // Validation Blueprint: Bank Line
+    function isValidBankLine(data) {
+      return data.txnDate is string && data.txnDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.description is string && data.description.size() <= 300 &&
+        data.amount is number &&
+        data.status is string && data.status in ['review', 'matched', 'check_matched', 'posted', 'ignored'];
+    }
+
+    // Validation Blueprint: Delivery Statement
+    function isValidDeliveryStatement(data) {
+      return data.platform is string && data.platform.size() > 0 && data.platform.size() <= 50 &&
+        data.periodStart is string && data.periodStart.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.periodEnd is string && data.periodEnd.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.grossSales is number && data.netPayout is number;
+    }
+
+    // Validation Blueprint: Compliance Event
+    function isValidComplianceEvent(data) {
+      return data.taxType is string && data.taxType.size() > 0 && data.taxType.size() <= 50 &&
+        data.periodEnd is string && data.periodEnd.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.status is string && data.status in ['UPCOMING', 'FILED', 'OVERDUE'];
+    }
+
+    // Validation Blueprint: Inventory Count
+    function isValidInventoryCount(data) {
+      return data.countDate is string && data.countDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.adjusted is bool;
+    }
+
+    // Validation Blueprint: Audit Log (append-only)
+    function isValidAuditLog(data) {
+      return data.ts is string &&
+        data.actor is string && data.actor.size() <= 100 &&
+        data.action is string && data.action.size() <= 100 &&
+        data.entity is string && data.entity.size() <= 100 &&
+        data.entityId is string && data.entityId.size() <= 128;
+    }
+
+    // Validation Blueprint: Session & Auth Config
+    function isValidSession(data) {
+      return data.token is string && data.token.size() <= 128 &&
+        data.expiresAt is number &&
+        data.revoked is bool;
+    }
+    function isValidAuthConfig(data) {
+      return data.key is string && data.key.size() <= 50 &&
+        data.salt is string && data.salt.size() <= 100 &&
+        data.hash is string && data.hash.size() <= 150;
+    }
+
+    // ── Collection Match Blocks ──
+
+    match /locations/{locationId} {
+      allow get, list: if true;
+      allow create: if isValidId(locationId) && isValidLocation(incoming());
+      allow update: if isValidId(locationId) && isValidLocation(incoming());
+      allow delete: if false;
+    }
+
+    match /auth_config/{authConfigId} {
+      allow get, list: if true;
+      allow create: if isValidId(authConfigId) && isValidAuthConfig(incoming());
+      allow update: if isValidId(authConfigId) && isValidAuthConfig(incoming());
+      allow delete: if false;
+    }
+
+    match /sessions/{sessionId} {
+      allow get, list: if true;
+      allow create: if isValidId(sessionId) && isValidSession(incoming());
+      allow update: if isValidId(sessionId) && isValidSession(incoming());
+      allow delete: if false;
+    }
+
+    match /accounts/{accountId} {
+      allow get, list: if true;
+      allow create: if isValidId(accountId) && isValidAccount(incoming());
+      allow update: if isValidId(accountId) && isValidAccount(incoming());
+      allow delete: if false;
+    }
+
+    match /journal_entries/{journalEntryId} {
+      allow get, list: if true;
+      allow create: if isValidId(journalEntryId) && isValidJournalEntry(incoming());
+      allow update: if isValidId(journalEntryId) && isValidJournalEntry(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['voided', 'voidedBy', 'voidReason', 'voidedAt', 'reversedBy', 'reversedAt', 'reversalReason']);
+      allow delete: if false;
+    }
+
+    match /invoices/{invoiceId} {
+      allow get, list: if true;
+      allow create: if isValidId(invoiceId) && isValidInvoice(incoming());
+      allow update: if isValidId(invoiceId) && isValidInvoice(incoming());
+      allow delete: if false;
+    }
+
+    match /checks/{checkId} {
+      allow get, list: if true;
+      allow create: if isValidId(checkId) && isValidCheck(incoming());
+      allow update: if isValidId(checkId) && isValidCheck(incoming());
+      allow delete: if false;
+    }
+
+    match /bank_lines/{bankLineId} {
+      allow get, list: if true;
+      allow create: if isValidId(bankLineId) && isValidBankLine(incoming());
+      allow update: if isValidId(bankLineId) && isValidBankLine(incoming());
+      allow delete: if false;
+    }
+
+    match /delivery_statements/{deliveryStatementId} {
+      allow get, list: if true;
+      allow create: if isValidId(deliveryStatementId) && isValidDeliveryStatement(incoming());
+      allow update: if isValidId(deliveryStatementId) && isValidDeliveryStatement(incoming());
+      allow delete: if false;
+    }
+
+    match /compliance_events/{complianceEventId} {
+      allow get, list: if true;
+      allow create: if isValidId(complianceEventId) && isValidComplianceEvent(incoming());
+      allow update: if isValidId(complianceEventId) && isValidComplianceEvent(incoming());
+      allow delete: if false;
+    }
+
+    match /inventory_counts/{inventoryCountId} {
+      allow get, list: if true;
+      allow create: if isValidId(inventoryCountId) && isValidInventoryCount(incoming());
+      allow update: if isValidId(inventoryCountId) && isValidInventoryCount(incoming());
+      allow delete: if false;
+    }
+
+    // Append-only audit trail
+    match /audit_log/{auditLogId} {
+      allow get, list: if true;
+      allow create: if isValidId(auditLogId) && isValidAuditLog(incoming());
+      allow update, delete: if false;
+    }
+  }
+}
